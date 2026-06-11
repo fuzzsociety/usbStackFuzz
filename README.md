@@ -1,437 +1,389 @@
-# ESP32-S3 USB Audio/MIDI Unicode Descriptor Fuzzer
+# ESP32-S3 USB MIDI and HID Fuzzing Labs
 
-**FuzzSociety USB host-surface test firmware for Windows and macOS.**
+Small ESP32-S3 firmware projects for experimenting with USB device emulation,
+host-side parser behavior, and descriptor/report robustness. The repository
+contains lab-oriented USB devices that can be flashed on ESP32-S3 boards and
+attached to sacrificial Windows, macOS, Linux, router, or embedded hosts.
 
-This project turns an ESP32-S3 board into a deterministic USB device that repeatedly exposes fuzzed **USB AudioControl** and **USB MIDIStreaming** descriptor layouts, while also rotating through Unicode-heavy USB string descriptors such as manufacturer, product, serial, and interface/function names.
+The current focus is on two USB surfaces that are commonly auto-bound by modern
+operating systems:
 
-The goal is to exercise host-side USB parsing and binding paths in Windows and macOS, especially around:
+- **USB MIDI**: class-compliant MIDI-style devices, including unusual strings,
+  Unicode device names, endpoint combinations, and packet patterns.
+- **USB HID**: Human Interface Device experiments, including accessibility-style
+  reports, Braille-display-like reports, vendor-defined reports, and controlled
+  report mutation.
 
-- USB device/configuration/interface/endpoint descriptors
-- AudioControl descriptors
-- MIDIStreaming descriptors
-- MIDI jack topology descriptors
-- class-specific endpoint companion descriptors
-- Unicode USB string descriptor handling
-- attach/detach and class-driver teardown behavior
+The goal is not to build malicious USB gadgets. The goal is to exercise host USB
+stacks, class drivers, descriptor parsers, and control-transfer handling in a
+repeatable lab environment.
 
-This firmware is intended for controlled vulnerability research on machines you own or are authorized to test.
+## Why ESP32-S3?
 
-## Why this exists
+The ESP32-S3 exposes a native USB device peripheral, making it a convenient and
+cheap target for building class-compliant or intentionally unusual USB devices.
+It is easy to reflash, portable, and useful when testing how different hosts
+react to USB descriptors, string descriptors, interfaces, endpoints, and class
+requests.
 
-HID report descriptor fuzzing is useful, but Audio/MIDI gives a different and richer surface. Hosts typically parse several layers before a device becomes visible to CoreAudio, MIDI services, Windows PnP, or class drivers.
+This makes it useful for:
 
-This firmware targets that path with a simple campaign model:
+- USB descriptor robustness testing
+- Host parser fuzzing
+- HID report descriptor experiments
+- MIDI endpoint and packet behavior testing
+- Unicode string descriptor testing
+- Regression tests across macOS, Windows, Linux, routers, and embedded hosts
+- Reproducing crashes or driver warnings with fixed seeds
 
-```text
-boot
-case N
-select Unicode string profile
-build deterministic Audio/MIDI descriptor variant
-expose USB device
-wait
-mark case clean
-reboot to N+1
-```
+## Projects
 
-If the host crashes, freezes, panics, or reboots, the iteration sequence is deterministic, so you can replay around the suspected case range.
+### USB MIDI Fuzzer
 
-## Hardware
+The MIDI firmware simulates a class-compliant USB MIDI device while allowing
+controlled variation of descriptors, strings, endpoint behavior, and packet
+contents.
 
-Tested target style:
+Interesting areas include:
 
-- ESP32-S3 board with native USB device support
-- Freenove ESP32-S3 WROOM-style boards
-- USB-C data cable connected to the ESP32-S3 native USB port
+- long and short USB string descriptors
+- Unicode-heavy product/manufacturer/serial names
+- unusual but valid MIDI packet streams
+- malformed or boundary-value MIDI event packets
+- repeated connect/disconnect testing
+- host behavior when the device exposes strange names or endpoint layouts
 
-The default PlatformIO environments support both 2MB and 8MB flash reports:
+This is useful for testing host-side MIDI stacks, audio/MIDI enumeration paths,
+class-driver assumptions, and logging behavior.
 
-```text
-esp32s3_2mb
-esp32s3_8mb
-```
+### USB HID Accessibility Fuzzer
 
-If esptool reports `Expected 8MB, found 2MB`, use the 2MB environment.
+The HID firmware simulates non-keyboard HID devices, especially accessibility
+or assistive-control-style devices. The default design avoids keyboard injection
+and does not send keycodes.
 
-## Repository layout
+Interesting areas include:
+
+- HID report descriptor parsing
+- accessibility-style input reports
+- Braille-display-like usage pages
+- vendor-defined reports
+- `GET_REPORT` and `SET_REPORT` control paths
+- boundary-sized feature/input/output reports
+- host behavior across HID class drivers
+
+This is useful because HID devices are widely supported and often auto-bound by
+operating systems without custom drivers.
+
+## Safety Model
+
+These projects are intended for controlled research environments.
+
+Recommended setup:
+
+- use sacrificial test machines or virtual machines with USB passthrough
+- keep logs enabled while testing
+- avoid testing on production machines
+- avoid using the HID project as a keyboard-emulation or keystroke-injection
+  device
+- prefer fixed seeds when reproducing crashes
+- document the exact firmware build, host operating system, and USB logs
+
+The HID project is intentionally designed around non-keyboard reports by default.
+Pointer movement, keyboard-style reports, or aggressive mutation should only be
+enabled deliberately in a lab.
+
+## Repository Layout
+
+A suggested layout is:
 
 ```text
 .
-├── platformio.ini
-├── sdkconfig.defaults
-├── partitions_2MB.csv
-├── partitions_8MB.csv
-└── src
-    ├── idf_component.yml
-    └── main.cpp
+├── LICENSE
+├── README.md
+├── hid-accessibility-fuzzer/
+│   ├── CMakeLists.txt
+│   ├── sdkconfig.defaults
+│   ├── main/
+│   │   ├── CMakeLists.txt
+│   │   ├── idf_component.yml
+│   │   └── main.c
+│   ├── docs/
+│   │   └── descriptor_notes.md
+│   └── tools/
+│       ├── linux_watch.sh
+│       └── macos_watch.sh
+└── midi-fuzzer/
+    ├── CMakeLists.txt
+    ├── sdkconfig.defaults
+    ├── main/
+    │   ├── CMakeLists.txt
+    │   ├── idf_component.yml
+    │   └── main.c
+    ├── docs/
+    │   └── descriptor_notes.md
+    └── tools/
+        ├── linux_watch.sh
+        └── macos_watch.sh
 ```
 
-The project uses **ESP-IDF through PlatformIO** and pulls `esp_tinyusb` as an ESP-IDF managed component.
+The exact project names may differ, but keeping MIDI and HID as separate
+firmware projects makes testing and reproduction easier.
 
-Do not build this as an Arduino project and do not add `lib_deps = tinyusb`.
+## Requirements
 
-## Build and flash
+- ESP32-S3 development board with native USB support
+- ESP-IDF installed and exported in the shell
+- USB cable that supports data, not charge-only
+- sacrificial host or VM for testing
 
-Install PlatformIO, then from the repository root:
+## Board Compatibility
+
+The best boards for this repository are ESP32-S3 boards that expose the native
+USB data lines separately from the debug UART. This lets you connect one cable to
+the fuzz target host while keeping another cable connected to your development
+machine for flashing, logs, and crash triage.
+
+Important distinction: most ESP32-S3 "dual USB" boards do not provide two fully
+independent native USB device controllers. Usually they provide:
+
+- **Native USB / USB-OTG port** connected to the ESP32-S3 USB D+/D- pins. Use
+  this as the fuzzing port.
+- **USB-to-UART port** connected through a bridge chip such as CP210x, CH34x, or
+  similar. Use this for flashing and serial logs.
+
+Espressif documents the ESP32-S3 USB device pins as GPIO20 for D+ and GPIO19 for
+D-. On two-port ESP32-S3 development boards, the port labeled `USB` is normally
+connected to these native USB pins.
+
+### Recommended dual-port style boards
+
+| Board | Why it is useful | Notes |
+| --- | --- | --- |
+| **Espressif ESP32-S3-DevKitC-1** | Good default board. It exposes a `USB` native USB-OTG port and a separate `USB-to-UART` port. | Use `USB` toward the fuzz target host. Use `USB-to-UART` for flashing and monitoring. Variants such as `N8R8`, `N16R8`, and `N32R16V` should be fine as long as they are ESP32-S3 DevKitC-style boards. |
+| **Espressif ESP32-S3-USB-OTG** | Best board when you also want to experiment with host mode, OTG switching, VBUS behavior, or device/host role changes. | It has USB host/device hardware, a USB device interface, and a separate USB-to-UART debug interface. More expensive and more complex than DevKitC, but very useful for USB research. |
+| **Waveshare ESP32-S3-GEEK** | Convenient dongle-like board with an onboard USB-A male connector and a separate UART port. | Useful when you want a compact plug-in test device. Confirm the UART header/cable before relying on it for logs. |
+| **Generic ESP32-S3 DevKitC-compatible boards with two USB-C ports** | Many clones expose one port as `COM`, `UART`, or `USB-to-UART`, and the other as `USB`, `OTG`, or `Native USB`. | They can work well, but check the schematic. For this repo, the fuzzing port must reach GPIO19/GPIO20, not only a USB-to-UART bridge. |
+
+### Single-port boards that can still work
+
+Single-port native USB boards can run the firmware, but they are less convenient
+for fuzzing because the same port is used for programming, logging, and device
+emulation. If the firmware wedges the USB stack, you may lose logs until reset.
+
+Examples that should be usable with extra care:
+
+| Board | Notes |
+| --- | --- |
+| **Adafruit ESP32-S3 Feather** | Native USB board. Good ecosystem, but only one onboard USB-C path, so use an external UART adapter if you want independent logs. |
+| **Seeed Studio XIAO ESP32S3 / XIAO ESP32S3 Sense** | Small and cheap native USB board. Good for disposable tests, less comfortable for serial triage unless you add an external UART adapter. |
+| **Arduino Nano ESP32** | ESP32-S3-based board with native USB support. Convenient if you already use the Nano form factor. Check ESP-IDF board support and pin defaults before using it as the main lab board. |
+| **Unexpected Maker FeatherS3 / ProS3** | Native USB ESP32-S3 boards with good power design. Use an external UART adapter for independent logging. |
+| **LilyGO T-Dongle-S3 / Waveshare ESP32-S3-GEEK-like dongles** | Dongle format is attractive for host fuzzing. Prefer models with a separate UART header if you need logs. |
+
+### Boards to treat carefully
+
+Boards that route USB through an onboard hub, USB switch, or combined UART/native
+USB circuit can still be useful, but they may pollute the target host view with
+extra devices. For clean USB fuzzing, prefer a board where the target host sees
+only the experimental MIDI or HID device.
+
+When buying a board, check for these labels and schematic details:
+
+- `USB`, `OTG`, `Native USB`, `USB_DEV`, or D+/D- connected to GPIO20/GPIO19
+- separate `UART`, `COM`, or `USB-to-UART` port for logs
+- data-capable cable support
+- easy access to `BOOT` and `RESET`
+- enough PSRAM/flash if you plan to add large descriptor corpora or logging
+
+For this repository, the practical ideal is: flash/log over the UART port, fuzz
+the host through the native USB port.
+
+## Build
+
+From one of the firmware project directories:
 
 ```bash
-pio run -e esp32s3_2mb
-pio run -e esp32s3_2mb -t upload
+. "$IDF_PATH/export.sh"
+idf.py set-target esp32s3
+idf.py build
 ```
 
-For an 8MB board:
+Flash and monitor:
 
 ```bash
-pio run -e esp32s3_8mb
-pio run -e esp32s3_8mb -t upload
+idf.py -p /dev/ttyACM0 flash monitor
 ```
 
-If PlatformIO keeps stale state after config edits:
+On macOS, the serial port may look like:
 
 ```bash
-rm -rf .pio managed_components sdkconfig sdkconfig.old dependencies.lock
-pio run -e esp32s3_2mb
+idf.py -p /dev/cu.usbmodemXXXX flash monitor
 ```
 
-## Runtime modes
+## Reproducible Seeds
 
-### Normal fuzzing mode
-
-Power/reset the board normally.
-
-The firmware will:
-
-1. load the next case from NVS,
-2. select a Unicode string profile,
-3. generate a fuzzed Audio/MIDI configuration descriptor,
-4. expose the USB device,
-5. dwell for the configured time,
-6. mark the case clean,
-7. reboot into the next case.
-
-Default dwell time:
-
-```cpp
-#define CASE_DWELL_MS 30000u
-```
-
-That is approximately one case every 30 seconds plus USB enumeration/reboot overhead.
-
-### BOOT/GPIO0 held during reset
-
-Holding BOOT while resetting clears the NVS campaign state and reboots.
-
-Use this to reset the campaign counter.
-
-## Deterministic cases
-
-Cases are deterministic. Given the same `case_id`, the firmware chooses the same:
-
-- seed
-- descriptor variant
-- mutation values
-- Unicode string profile
-- configuration descriptor bytes
-
-Unicode profile selection is:
-
-```text
-profile = case_id % number_of_profiles
-```
-
-Early cases cover fixed descriptor variants. Later cases use deterministic pseudo-random mutation from the case seed.
-
-## Unicode string profiles
-
-The firmware rotates manufacturer, product, serial, and function/interface strings through profiles covering:
-
-- ASCII baseline
-- Chinese simplified and traditional
-- Japanese
-- Korean
-- Cyrillic
-- Greek
-- Hebrew
-- Arabic and right-to-left text
-- Devanagari
-- Thai
-- Khmer
-- accented Latin
-- combining marks
-- Zalgo-style combining text
-- fullwidth Latin
-- mathematical Unicode
-- enclosed characters
-- symbols
-- emoji and supplementary-plane characters
-- bidi control markers
-- zero-width markers
-- long mixed Unicode strings
-- mixed-script names
-
-This is useful because host operating systems touch USB string descriptors early, before or during class-driver binding.
-
-## Descriptor variants
-
-The current corpus includes variants such as:
-
-```text
-VAR_VALID_MIDI
-VAR_DUP_JACK_IDS
-VAR_ZERO_JACK_IDS
-VAR_BAD_TOTAL_LENGTHS
-VAR_BAD_ENDPOINT_COMPANION
-VAR_BAD_INTERFACE_COUNTS
-VAR_MIDI_WITH_AUDIO_STREAM
-VAR_RANDOM_CS_TRAILERS
-VAR_AUDIO_ONLY_ODD_STREAM
-```
-
-The intent is to stress host parsers without requiring high-bandwidth audio streaming. The firmware is descriptor-focused.
-
-## Host campaign workflow
-
-Use sacrificial or non-critical hosts. A real kernel panic on macOS or a bugcheck on Windows can reboot or freeze the whole machine.
-
-Recommended campaign lengths:
-
-```text
-15–30 min   smoke run
-1–3 h       first signal run
-overnight   only on a sacrificial host
-```
-
-Keep notes with:
-
-```text
-campaign start time
-CASE_DWELL_MS
-host OS build/version
-approximate crash time
-observed host behavior
-```
-
-Because iterations are deterministic, a crash at a known time gives you an approximate case range. Replay around that range with `CASE_OVERRIDE`.
-
-## Replaying a case
-
-Edit `src/main.cpp`:
-
-```cpp
-#define AUTO_ADVANCE_CASE 0
-#define CASE_OVERRIDE 1234u
-#define REPLAY_DWELL_MS 90000u
-```
-
-Then rebuild and flash:
+When a firmware supports seeded mutation, build with a fixed seed:
 
 ```bash
-pio run -e esp32s3_2mb -t upload
+idf.py -DFUZZ_SEED=0x12345678 build flash monitor
 ```
 
-For a fuzzy crash window, replay around the suspected range:
+Record the seed together with:
 
-```text
-suspect - 10
-suspect - 9
-...
-suspect
-...
-suspect + 10
-```
+- firmware commit hash
+- ESP-IDF version
+- host operating system version
+- USB logs
+- crash logs or kernel messages
+- exact board model
 
-## macOS monitoring
+## Linux Host Logging
 
-Avoid broad predicates like `parse`, `USB`, `Audio`, or `MIDI` alone. They are too noisy and can match unrelated kernel logs such as Wi-Fi PHY parsing.
-
-Quiet error-focused stream:
+Useful commands while attaching the device:
 
 ```bash
-log stream --style compact --level default \
-  --predicate '
-    process == "kernel" AND
-    NOT composedMessage CONTAINS[c] "wlan0" AND
-    NOT composedMessage CONTAINS[c] "parsePHYEcounter" AND
-    (
-      composedMessage CONTAINS[c] "AppleUSB" OR
-      composedMessage CONTAINS[c] "AppleUSBAudio" OR
-      composedMessage CONTAINS[c] "AppleMIDI" OR
-      composedMessage CONTAINS[c] "303A" OR
-      composedMessage CONTAINS[c] "1001" OR
-      composedMessage CONTAINS[c] "panic" OR
-      composedMessage CONTAINS[c] "watchdog" OR
-      composedMessage CONTAINS[c] "kernel trap"
-    ) AND (
-      composedMessage CONTAINS[c] "failed" OR
-      composedMessage CONTAINS[c] "invalid" OR
-      composedMessage CONTAINS[c] "malformed" OR
-      composedMessage CONTAINS[c] "timeout" OR
-      composedMessage CONTAINS[c] "panic" OR
-      composedMessage CONTAINS[c] "watchdog" OR
-      composedMessage CONTAINS[c] "kernel trap" OR
-      composedMessage CONTAINS[c] "303A" OR
-      composedMessage CONTAINS[c] "1001"
-    )
-  ' | tee audio_midi_fuzz_mac_errors_only.log
+sudo dmesg -w
+journalctl -kf
+lsusb
+lsusb -v -d VID:PID
 ```
 
-Low-noise USB presence sampler:
+For HID descriptor inspection:
 
 ```bash
-while true; do
-  echo "===== $(date -Is) ====="
-  system_profiler SPUSBDataType 2>/dev/null | \
-    egrep -i 'Espressif|Freenove|TinyUSB|Audio|MIDI|Product ID|Vendor ID|Serial Number|Location ID' || true
-  sleep 10
-done | tee usb_audio_midi_presence.log
+sudo usbhid-dump -e descriptor
+sudo usbhid-dump -e stream
 ```
 
-After a reboot, freeze, or panic:
+For MIDI testing:
 
 ```bash
-ls -lt /Library/Logs/DiagnosticReports/*panic* 2>/dev/null | head
+aconnect -l
+amidi -l
+aseqdump -l
 ```
 
-And extract recent USB/audio/MIDI context:
+## macOS Host Logging
+
+Useful commands while attaching the device:
 
 ```bash
-log show --last 30m --style compact \
-  --predicate '
-    composedMessage CONTAINS[c] "panic" OR
-    composedMessage CONTAINS[c] "watchdog" OR
-    composedMessage CONTAINS[c] "kernel trap" OR
-    composedMessage CONTAINS[c] "AppleUSB" OR
-    composedMessage CONTAINS[c] "AppleUSBAudio" OR
-    composedMessage CONTAINS[c] "AppleMIDI" OR
-    composedMessage CONTAINS[c] "303A" OR
-    composedMessage CONTAINS[c] "1001"
-  ' > postmortem_audio_midi_$(date +%Y%m%d_%H%M%S).log
+system_profiler SPUSBDataType
+ioreg -p IOUSB -l -w 0
 ```
 
-## Windows monitoring
+General USB/HID logging:
 
-Run PowerShell as Administrator.
+```bash
+log stream --style compact --predicate 'process == "kernel" OR eventMessage CONTAINS[c] "USB" OR eventMessage CONTAINS[c] "HID"'
+```
 
-Live PnP status:
+MIDI-related inspection:
+
+```bash
+system_profiler SPAudioDataType
+```
+
+For GUI inspection, use **Audio MIDI Setup** on macOS.
+
+## Windows Host Logging
+
+Useful tools:
+
+- Device Manager
+- Event Viewer
+- USBView from the Windows SDK
+- PowerShell `Get-PnpDevice`
+
+Example PowerShell snippets:
 
 ```powershell
-$VIDPID = "VID_303A"
-
-while ($true) {
-    Clear-Host
-    "===== $(Get-Date -Format o) ====="
-
-    $devs = Get-PnpDevice -PresentOnly:$false |
-        Where-Object { $_.InstanceId -match $VIDPID }
-
-    foreach ($d in $devs) {
-        "`n==== $($d.InstanceId) ===="
-        $d | Format-List Status,Class,FriendlyName,InstanceId
-
-        Get-PnpDeviceProperty -InstanceId $d.InstanceId -ErrorAction SilentlyContinue |
-            Where-Object {
-                $_.KeyName -match 'DeviceDesc|Service|Class|HardwareIds|Problem|DriverProblemDesc|Location|ContainerId|Parent'
-            } |
-            Sort-Object KeyName |
-            Format-Table KeyName,Data -AutoSize
-    }
-
-    Start-Sleep 2
-}
+Get-PnpDevice -PresentOnly | ? { $_.InstanceId -match 'USB' }
+Get-PnpDeviceProperty -InstanceId '<INSTANCE_ID>'
 ```
 
-Tail SetupAPI:
+## Testing Strategy
 
-```powershell
-Get-Content "$env:windir\inf\setupapi.dev.log" -Wait -Tail 300 |
-    Select-String -Pattern "VID_303A|303A|Audio|MIDI|USB|Problem|failed|descriptor|validation"
-```
+A practical test loop:
 
-Check crash artifacts:
+1. Flash a known seed.
+2. Start host-side logs.
+3. Attach the ESP32-S3 native USB port.
+4. Wait for enumeration.
+5. Exercise the class path:
+   - open MIDI device from a DAW or MIDI monitor
+   - read HID reports with host tools
+   - trigger `GET_REPORT` / `SET_REPORT` where applicable
+6. Save logs.
+7. Change one variable at a time.
 
-```powershell
-Get-ChildItem C:\Windows\LiveKernelReports -Recurse -ErrorAction SilentlyContinue |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 30 FullName,LastWriteTime,Length
-```
+Good variables to mutate:
 
-Bugcheck and unexpected reboot events:
+- string descriptor length
+- Unicode string contents
+- report descriptor size
+- report count and report size
+- endpoint packet size
+- interface subclass/protocol
+- number of reports
+- feature report length
+- MIDI event packet values
+- timing between reports
 
-```powershell
-Get-WinEvent -FilterHashtable @{
-    LogName='System'
-    Id=41,1001,6008
-    StartTime=(Get-Date).AddHours(-4)
-} -ErrorAction SilentlyContinue |
-Format-List TimeCreated,ProviderName,Id,LevelDisplayName,Message
-```
+## Unicode Descriptor Ideas
 
-## Interesting result buckets
-
-Expected / low priority:
+Useful test strings include mixed scripts and boundary cases:
 
 ```text
-USB device rejected cleanly
-Audio/MIDI class driver refuses descriptor
-invalid descriptor log
-failed to start class driver
+FuzzSociety MIDI 測試 устройство جهاز 🎛️
+Assistive HID Δοκιμή кнопка 点字 ⠃⠗⠇
+MIDI-Ω-漢字-кириллица-العربية
+HID Accessibility 🧪 Braille ⠋⠥⠵⠵
 ```
 
-Medium priority:
+Keep notes on which hosts display, truncate, reject, or sanitize the names.
 
-```text
-USB stack reset loop
-Audio/MIDI service hangs
-device remains stuck until unplug
-host input/audio subsystem degrades
-high CPU in kernel or driver service
-```
+## Responsible Use
 
-High priority:
+Do not attach experimental USB firmware to systems you do not own or do not have
+permission to test. Do not use the HID project to send unsolicited keyboard
+input. Do not use these projects for persistence, evasion, credential capture,
+or unauthorized access.
 
-```text
-macOS kernel panic
-Windows bugcheck
-watchdog timeout
-spontaneous reboot
-machine freeze requiring power-cycle
-USB subsystem dead until reboot
-```
+The intended output of this repository is research data: logs, crashes,
+descriptor behavior, parser bugs, and reproducible test cases.
 
-## Safety notes
 
-This firmware intentionally sends unusual USB descriptors to host operating systems. Use it only against systems you own or have explicit authorization to test.
+## Hardware References
 
-Do not run long campaigns on your daily workstation unless you are comfortable with:
-
-- kernel panics or bugchecks
-- spontaneous reboots
-- loss of unsaved work
-- USB subsystem instability
-- audio/MIDI services becoming unstable
-
-Prefer a sacrificial Mac mini, spare Windows laptop, or lab host.
-
-## Development notes
-
-This project intentionally avoids MSC dump mode in the Audio/MIDI firmware. Some `esp_tinyusb` versions provide strong default callback symbols for MSC and lifecycle events; defining duplicate `tud_*` callbacks can cause linker conflicts.
-
-For that reason, this build keeps the host-facing fuzz surface small:
-
-```text
-USB Audio/MIDI descriptors
-Unicode USB strings
-optional MIDI traffic
-NVS case state
-```
-
-If you need firmware-side log extraction later, add it as a separate firmware mode or a separate log-dumper project rather than mixing MSC into this Audio/MIDI fuzzer.
+- Espressif ESP32-S3 USB Device Stack: documents native USB D+/D- routing to
+  GPIO20/GPIO19 and notes that two-port development boards usually label the
+  native port as `USB`.
+- Espressif ESP32-S3-DevKitC-1 user guide: documents the separate
+  `USB-to-UART Port` and `USB Port`.
+- Espressif ESP32-S3-USB-OTG user guide: documents the USB host/device-focused
+  board, USB device interface, USB host interface, USB switch, and USB-to-UART
+  debug interface.
+- Adafruit ESP32-S3 Feather overview: documents native USB support.
+- Waveshare ESP32-S3-GEEK documentation: documents the onboard USB-A port and
+  UART port.
 
 ## License
 
-Copyright 2026 FuzzSociety ORG
+
+MIT 
+
+Copyright 2026 FuzzSociety / Antonio Nappa
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+## Author
+
+
+FuzzSociety / Antonio Nappa
+
+

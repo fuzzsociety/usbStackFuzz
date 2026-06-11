@@ -1,0 +1,14 @@
+# ESP32-S3 USB device via TinyUSB / esp_tinyusb
+# Exact Kconfig symbols can vary slightly between ESP-IDF / esp_tinyusb releases.
+# If menuconfig shows different names, enable TinyUSB Device and MIDI.
+
+CONFIG_TINYUSB_MIDI_ENABLED=y
+
+# Audio class is optional for this descriptor-fuzzing firmware. We mainly expose
+# AudioControl/MIDIStreaming descriptors; TinyUSB MIDI handles the MIDI endpoints.
+# If your esp_tinyusb release has this symbol and you want UAC callbacks, enable it.
+# CONFIG_TINYUSB_AUDIO_ENABLED=y
+
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+CONFIG_LOG_DEFAULT_LEVEL_WARN=y
+CONFIG_FREERTOS_HZ=1000
