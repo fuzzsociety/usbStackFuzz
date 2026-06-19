@@ -18,6 +18,14 @@ The goal is not to build malicious USB gadgets. The goal is to exercise host USB
 stacks, class drivers, descriptor parsers, and control-transfer handling in a
 repeatable lab environment.
 
+> **RP2040 port:** the [`rp2040`](../../tree/rp2040) branch carries a Raspberry
+> Pi Pico / RP2040 sibling — a single Pico SDK + TinyUSB firmware that runs a
+> deterministic campaign rotating through **several peripheral types** (HID,
+> MIDI, CDC, Vendor, a CDC+HID composite, and descriptor-only MSC and Audio). It
+> reuses this repo's HID report fuzzing and the MIDI lab's case-N→reboot-N+1
+> deterministic descriptor + Unicode string campaign. See `rp2040/README.md` on
+> that branch.
+
 ## Why ESP32-S3?
 
 The ESP32-S3 exposes a native USB device peripheral, making it a convenient and
